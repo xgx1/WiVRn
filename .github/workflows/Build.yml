@@ -375,6 +375,7 @@ jobs:
         echo Using stylesheet ${{env.CSS}} and name $APPNAME
 
         cmake --preset android-${{ matrix.buildtype }} -B build \
+          -DCMAKE_ANDROID_NDK=$ANDROID_NDK_LATEST_HOME \
           -DWIVRN_APK_VERSION_CODE=$VERSION_CODE \
           -DWIVRN_APK_PACKAGE=org.meumeu.wivrn$SUFFIX \
           -DWIVRN_CSS=${{env.CSS}} \
