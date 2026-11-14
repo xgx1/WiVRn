@@ -358,6 +358,9 @@ jobs:
           fi
 
           APPNAME=WiVRn
+
+          KS_OPTS="-DCPACK_APK_KEYSTORE=$(pwd)/ks.keystore -DCPACK_APK_KEYSTORE_PASSWORD=$(cat signing_key_password) -DCPACK_APK_KEY_ALIAS=default_key -DCPACK_APK_KEY_PASSWORD=$(cat signing_key_password)"
+
         else
           VERSION_CODE=1
 
@@ -369,10 +372,13 @@ jobs:
                 SUFFIX=".github.testing"
                 APPNAME="WiVRn Testing"
           fi
+
+          KS_OPTS=""
         fi
 
         echo Setting version code $VERSION_CODE in manifest
         echo Using stylesheet ${{env.CSS}} and name $APPNAME
+
 
         cmake --preset android-${{ matrix.buildtype }} -B build \
           -DCMAKE_ANDROID_NDK=$ANDROID_NDK_LATEST_HOME \
@@ -384,10 +390,7 @@ jobs:
           -DFETCHCONTENT_BASE_DIR=${{github.workspace}}/cmake-fetch \
           -DCMAKE_C_COMPILER_LAUNCHER=ccache \
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-          -DCPACK_APK_KEYSTORE=ks.keystore \
-          -DCPACK_APK_KEYSTORE_PASSWORD=$(cat signing_key_password) \
-          -DCPACK_APK_KEY_ALIAS=default_key \
-          -DCPACK_APK_KEY_PASSWORD=$(cat signing_key_password)
+          $KS_OPTS
 
         ( cd build && ninja && cpack )
 
