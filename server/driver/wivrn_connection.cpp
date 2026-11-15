@@ -22,8 +22,10 @@
 #include "protocol_version.h"
 #include "secrets.h"
 #include "smp.h"
+#include "util/u_logging.h"
 #include "wivrn_ipc.h"
 #include "wivrn_packets.h"
+#include <magic_enum.hpp>
 #include <algorithm>
 #include <arpa/inet.h>
 #include <chrono>
@@ -273,6 +275,25 @@ void wivrn::wivrn_connection::init(std::stop_token stop_token, std::function<voi
 	control.send(to_headset::handshake{.stream_port = port});
 
 	info_packet = std::get<from_headset::headset_info_packet>(receive(10s).first);
+
+	// 本地补丁：头显上报的尺寸/刷新率/编码偏好，排障用
+	{
+		std::string rates, codecs;
+		for (float r: info_packet.available_refresh_rates)
+			rates += std::to_string(int(r)) + " ";
+		for (auto c: info_packet.supported_codecs)
+			codecs += std::string(magic_enum::enum_name(c)) + " ";
+		U_LOG_I("headset info: render_eye=%ux%u stream_eye=%ux%u rates=[%s] preferred=%.0f min=%.0f divider=%u bit_depth=%d codecs=[%s] bitrate=%llu",
+		        info_packet.render_eye_width, info_packet.render_eye_height,
+		        info_packet.stream_eye_width, info_packet.stream_eye_height,
+		        rates.c_str(),
+		        info_packet.settings.preferred_refresh_rate,
+		        info_packet.settings.minimum_refresh_rate,
+		        info_packet.settings.fps_divider,
+		        info_packet.bit_depth ? int(*info_packet.bit_depth) : -1,
+		        codecs.c_str(),
+		        (unsigned long long)info_packet.settings.bitrate_bps);
+	}
 
 	active = true;
 

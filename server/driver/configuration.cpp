@@ -209,6 +209,9 @@ configuration::configuration()
 		if (auto it = json.find("bit-depth"); it != json.end())
 			bit_depth = *it;
 
+		// 本地补丁：确认位深配置真的被读到
+		U_LOG_I("configuration: bit-depth=%d (%s)", bit_depth ? *bit_depth : -1, config_file.string().c_str());
+
 		if (auto it = json.find("tcp-only"); it != json.end())
 			tcp_only = *it;
 

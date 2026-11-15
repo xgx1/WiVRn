@@ -4,7 +4,7 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.13.0'
+        classpath 'com.android.tools.build:gradle:9.5.1'
     }
 }
 
@@ -102,13 +102,18 @@ android {
         disable += "ExpiredTargetSdkVersion"
     }
 
+    // AGP 9 起 resValue 需要显式开启（默认关闭）
+    buildFeatures {
+        resValues = true
+    }
+
     defaultConfig {
         applicationId "org.meumeu.wivrn"
         // for Vulkan, need at least 24
         // for AImage_getHardwareBuffer, API 26
-        minSdkVersion 29
-        compileSdkVersion 34
-        targetSdkVersion 32 // for Oculus Store
+        minSdk 29            // = 头显实测 API（PICO 4 Pro / Android 10）
+        compileSdk 36
+        targetSdk 36
 
         versionName = project.hasProperty('wivrn_version') ? wivrn_version : "1.0"
         versionCode = project.hasProperty('wivrn_versionCode') ? wivrn_versionCode.toInteger() : 1
@@ -252,9 +257,12 @@ android {
 
     tasks["preBuild"].dependsOn "generatePngs"
 
-    applicationVariants.all { variant ->
-        // It probably works with merge${variant.name.capitalize()}Assets too
-        tasks["generate${variant.name.capitalize()}Assets"].dependsOn "externalNativeBuild${variant.name.capitalize()}"
-        tasks["merge${variant.name.capitalize()}Resources"].dependsOn "externalNativeBuild${variant.name.capitalize()}"
+    // AGP 9 移除了 applicationVariants，改用 Variant API；任务仍按名字匹配，避免依赖内部类型。
+    androidComponents {
+        onVariants(selector().all()) { variant ->
+            def cap = variant.name.capitalize()
+            tasks.matching { it.name in ["generate${cap}Assets", "merge${cap}Resources"] }
+                 .configureEach { it.dependsOn "externalNativeBuild${cap}" }
+        }
     }
 }

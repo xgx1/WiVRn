@@ -74,6 +74,12 @@ private:
 	std::mutex frames_mutex;
 	std::array<std::shared_ptr<wivrn::shard_accumulator::blit_handle>, decoder_count> common_frame(XrTime display_time);
 
+	// 自适应挑帧：稳定时取最新帧（低延迟），跳帧率变高时改按显示时隙取帧（平滑）。
+	bool buffered_pick = false;
+	uint64_t last_picked_frame = 0;
+	int pick_window_count = 0;
+	int pick_window_skips = 0;
+
 	std::unique_ptr<wivrn_session> network_session;
 	std::thread network_thread;
 	thread_safe<to_headset::tracking_control> tracking_control{};

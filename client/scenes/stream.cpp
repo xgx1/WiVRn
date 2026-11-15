@@ -679,16 +679,40 @@ std::array<std::shared_ptr<shard_accumulator::blit_handle>, 3> scenes::stream::c
 	std::array<std::shared_ptr<shard_accumulator::blit_handle>, decoder_count> result;
 	if (not common_frames.empty())
 	{
-		auto min = std::ranges::min_element(common_frames,
-		                                    std::ranges::less{},
-		                                    [display_time](auto frame) {
-			                                    if (not frame)
-				                                    return std::numeric_limits<XrTime>::max();
-			                                    return std::abs(frame->view_info.display_time - display_time);
-		                                    });
+		// 本地改动：pick_mode 决定取哪一帧。
+		// 稳定链路取最新帧：解码完等下一个 vsync 就上屏，端到端比“按显示时隙取帧”低约 45 ms（实测 90→46）。
+		// 但到达抖动大时，“取最新”会让相邻两次取帧的序号跳着走（跳帧 = 画面顿），于是切回按显示时隙取帧。
+		auto newest = std::ranges::max_element(common_frames,
+		                                      std::ranges::less{},
+		                                      [](auto frame) { return frame ? frame->feedback.frame_index : 0; });
+		assert(*newest);
 
-		assert(*min);
-		auto frame_index = (*min)->feedback.frame_index;
+		shard_accumulator::blit_handle * picked = *newest;
+		if (buffered_pick)
+			picked = *std::ranges::min_element(common_frames,
+			                                  std::ranges::less{},
+			                                  [display_time](auto frame) {
+				                                  if (not frame)
+					                                  return std::numeric_limits<XrTime>::max();
+				                                  return std::abs(frame->view_info.display_time - display_time);
+			                                  });
+
+		// 每 48 次取帧评估一次：跳帧超过 10% 就切到按显示时隙（换平滑），低于 3% 再切回取最新（换延迟）。
+		// shortcut: 阈值是拍出来的，链路特性变了要重调；只在 72/90 Hz 附近验证过。
+		if (last_picked_frame and picked->feedback.frame_index > last_picked_frame + 1)
+			++pick_window_skips;
+		last_picked_frame = picked->feedback.frame_index;
+		if (++pick_window_count >= 48)
+		{
+			if (not buffered_pick and pick_window_skips * 10 > pick_window_count)
+				buffered_pick = true;
+			else if (buffered_pick and pick_window_skips * 33 < pick_window_count)
+				buffered_pick = false;
+			pick_window_count = 0;
+			pick_window_skips = 0;
+		}
+
+		auto frame_index = picked->feedback.frame_index;
 		for (auto [i, decoder]: utils::enumerate(decoders))
 		{
 			if (alpha or i < view_count)

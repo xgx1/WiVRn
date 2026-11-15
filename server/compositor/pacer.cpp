@@ -27,6 +27,7 @@
 
 #include "os/os_time.h"
 #include "util/u_debug.h"
+#include "util/u_logging.h"
 
 DEBUG_GET_ONCE_FLOAT_OPTION(client_margin_ms, "WIVRN_CLIENT_MARGIN_MS", 1.f)
 
@@ -62,7 +63,10 @@ pacer::pacer(uint64_t frame_duration) :
 		        }
 		        if (samples.empty())
 			        continue;
-		        auto it = samples.begin() + (samples.size() * 995) / 1000;
+		        // 本地改动：上游取 99.5 分位（保守，实测在本机 USB 链路上留出了 14.7 ms 缓冲，直接抬高端到端延迟）。
+		        // 改取 99 分位，再配合客户端自适应缓冲吸收偶发晚帧。
+		        // shortcut: 缓冲变小后每 100 帧可能有一帧晚到（表现为单次轻顿）；链路变差时要改回 995。
+		        auto it = samples.begin() + (samples.size() * 99) / 100;
 		        std::ranges::nth_element(samples, it);
 
 		        std::unique_lock lock(mutex);
@@ -163,6 +167,34 @@ void pacer::on_feedback(const wivrn::from_headset::feedback & feedback, const cl
 
 	if (feedback.displayed and feedback.displayed > feedback.blitted and feedback.displayed < feedback.blitted + 100'000'000)
 		mean_render_to_display_ns = std::lerp(mean_render_to_display_ns, feedback.displayed - feedback.blitted, 0.1);
+
+	// 调试计时：WIVRN_TIMING_LOG=1 时逐帧打印流水线各段耗时（全部相对帧号，单位 ms）。
+	// encode_begin 是服务端收到该帧、开始编码的时刻，displayed 是头显真正上屏的时刻，
+	// 两者的差就是“这一帧从提交到上屏”的端到端延迟。
+	static const bool timing_log = getenv("WIVRN_TIMING_LOG") != nullptr;
+	if (timing_log and feedback.stream_index == 0 and feedback.blitted)
+	{
+		auto ms = [](int64_t ns) { return ns / 1e6; };
+		auto decoded_server = offset.from_headset(feedback.received_from_decoder);
+		U_LOG_I("TIMING frame=%" PRIu64
+		        " enc=%.2f send=%.2f net=%.2f(decode-in %.2f) dec=%.2f blit=%.2f disp=%.2f | app->photon=%.2f safe=%.2f wake=%.2f r2d=%.2f shown=%u",
+		        feedback.frame_index,
+		        ms(feedback.encode_end - feedback.encode_begin),
+		        ms(feedback.send_end - feedback.send_begin),
+		        ms(offset.from_headset(feedback.received_first_packet) - offset.from_headset(feedback.send_end)),
+		        ms(offset.from_headset(feedback.received_last_packet) - offset.from_headset(feedback.received_first_packet)),
+		        ms(feedback.received_from_decoder - feedback.sent_to_decoder),
+		        ms(feedback.blitted - feedback.received_from_decoder),
+		        ms(feedback.displayed - feedback.blitted),
+		        ms(feedback.displayed - feedback.encode_begin),
+		        // 时隙三要素：safe 是“为了让 99.5% 的帧提前解码完成”而留的余量（随实测晚解码量自适应增长），
+		        // wake 是应用被唤醒到提交的均值，r2d 是客户端报的“合成到上屏”。present 排在 now+safe+wake 之后，
+		        // 所以 safe 一大，端到端就整体后移——这三项才是延迟的根，不是传输。
+		        ms(safe_present_to_decoded_ns),
+		        ms(mean_wake_up_to_present_ns),
+		        ms(mean_render_to_display_ns),
+		        unsigned(feedback.times_displayed));
+	}
 }
 void pacer::mark_timing_point(
         comp_target_timing_point point,

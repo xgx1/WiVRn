@@ -696,6 +696,8 @@ compositor::compositor(wivrn_session & session) :
         squasher(vk, render_extent(session.get_info())),
         foveation(vk, images[0].image.info().extent)
 {
+	// 本地补丁：帧节奏排障 —— 应用侧拿到的帧率可能被这里决定
+	U_LOG_I("compositor: encoder fps=%.1f frame_rate=%.1f pacer_period=%.2fms", settings[0].fps, frame_rate.load(), U_TIME_1S_IN_NS / frame_rate.load() / 1e6);
 	comp_base * c_base = this;
 	// Ensure we can safely cast pointers
 	assert(intptr_t(&base) == intptr_t(this));
@@ -807,7 +809,7 @@ void compositor::set_framerate(float hz)
 {
 	if (frame_rate.exchange(hz) == hz)
 		return;
-	U_LOG_IFL_D(log_level, "Framerate change from %.0f to %.0f", frame_rate.load(), hz);
+	U_LOG_I("compositor: framerate %.0f -> %.0f (period %.2fms)", frame_rate.load(), hz, U_TIME_1S_IN_NS / hz / 1e6);
 	pacer.set_frame_duration(U_TIME_1S_IN_NS / hz);
 	for (auto & encoder: encoders)
 		encoder->set_framerate(hz);

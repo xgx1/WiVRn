@@ -18,6 +18,7 @@
  */
 
 #include "android_decoder.h"
+#include <utility>
 #include "application.h"
 #include "scenes/stream.h"
 #include "utils/named_thread.h"
@@ -566,6 +567,31 @@ static bool hardware_accelerated(AMediaCodec * media_codec)
 	return true;
 }
 
+// 本地补丁：有些设备（如 PICO 4 / 骁龙）上 AMediaCodec_createDecoderByType 返回的是软件实现，
+// 于是 HEVC/AV1 被误判为不支持（客户端只上报 h264，服务端只能靠配置强制）。
+// 按厂商硬件解码器的规范名再探一次，能创建即认为有硬解。
+// shortcut: 只覆盖已知的 qcom 命名，换芯片厂商需要往表里加名字。
+static bool vendor_hardware_decoder(const char * mime)
+{
+	static const std::pair<const char *, const char *> candidates[] = {
+	        {"video/av01", "OMX.qcom.video.decoder.av1"},
+	        {"video/av01", "c2.qti.av1.decoder"},
+	        {"video/hevc", "OMX.qcom.video.decoder.hevc"},
+	        {"video/hevc", "c2.qti.hevc.decoder"},
+	        {"video/avc", "OMX.qcom.video.decoder.avc"},
+	        {"video/avc", "c2.qti.avc.decoder"},
+	};
+	for (const auto & [type, name]: candidates)
+	{
+		if (std::string_view(type) != mime)
+			continue;
+		AMediaCodec_ptr media_codec(AMediaCodec_createCodecByName(name));
+		if (media_codec and hardware_accelerated(media_codec.get()))
+			return true;
+	}
+	return false;
+}
+
 void decoder::supported_codecs(std::vector<wivrn::video_codec> & result)
 {
 	// Make sure we update this code when codecs are changed
@@ -580,7 +606,7 @@ void decoder::supported_codecs(std::vector<wivrn::video_codec> & result)
 	{
 		AMediaCodec_ptr media_codec(AMediaCodec_createDecoderByType(mime(codec)));
 
-		bool supported = media_codec and hardware_accelerated(media_codec.get());
+		bool supported = (media_codec and hardware_accelerated(media_codec.get())) or vendor_hardware_decoder(mime(codec));
 		if (supported)
 			result.push_back(codec);
 
