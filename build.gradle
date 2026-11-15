@@ -226,7 +226,9 @@ android {
     buildTypes.all { variant ->
         sourceSets {
             "${variant.name}" {
-                jniLibs.srcDirs layout.buildDirectory.dir("libs${variant.name.capitalize()}")
+                // 传 File 而非 Provider：AGP 9 的 SourceSet API 已不接受 Provider，
+                // 生成目录的任务依赖由下方 preBuild / merge*Resources 的显式 dependsOn 保证。
+                jniLibs.srcDirs layout.buildDirectory.dir("libs${variant.name.capitalize()}").get().asFile
             }
         }
 
@@ -241,10 +243,10 @@ android {
         main {
             manifest.srcFile 'AndroidManifest.xml'
             java.srcDirs = ['client/java']
-            res.srcDirs = [ 'resources', layout.buildDirectory.dir('generated_resources') ]
-            resources.srcDirs = [layout.buildDirectory.dir('resources')]
+            res.srcDirs = [ 'resources', layout.buildDirectory.dir('generated_resources').get().asFile ]
+            resources.srcDirs = [layout.buildDirectory.dir('resources').get().asFile]
 
-            assets.srcDirs = ['assets', layout.buildDirectory.dir("assets")]
+            assets.srcDirs = ['assets', layout.buildDirectory.dir("assets").get().asFile]
         }
     }
 
